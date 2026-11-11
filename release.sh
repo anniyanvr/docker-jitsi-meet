@@ -2,10 +2,15 @@
 
 set -e
 
+# **** NB ****
+# This iscript is no longer used, but it is kept here for reference.
+#
+
+
 # Don't start a release if the tree is dirty
 #
 
-if [[ ! -z $(git status -s) ]]; then
+if [[ -n $(git status -s) ]]; then
     echo "Git tree is not clean, aborting release!"
     exit 1
 fi
@@ -25,8 +30,8 @@ VERSION="${RELEASE}-${V}"
 echo "Releasing ${VERSION}"
 
 if git rev-parse "${VERSION}" >/dev/null 2>&1; then
-	echo "Tag for such version already exists!"
-	exit 1
+    echo "Tag for such version already exists!"
+    exit 1
 fi
 
 # Prepare changelog
@@ -38,6 +43,14 @@ CHANGES=$(git log --oneline --no-decorate --no-merges ${LAST_VERSION}..HEAD --pr
 echo "Changelog:"
 echo "$CHANGES"
 
+# Tag Docker images and push them to DockerHub
+#
+
+JITSI_BUILD=${VERSION} JITSI_RELEASE=${RELEASE} make release
+
+# Changelog
+#
+
 echo -e "## ${VERSION}\n\nBased on ${RELEASE} release ${V}.\n\n${CHANGES}\n" > tmp
 cat CHANGELOG.md >> tmp
 mv tmp CHANGELOG.md
@@ -45,7 +58,7 @@ mv tmp CHANGELOG.md
 # Set specific image tags in compose files
 #
 
-sed -i "" -e "s/latest/${VERSION}/" *.yml
+sed -i".bak" -e "s/unstable/${VERSION}/" *.yml
 
 # Commit all changes and tag the repo
 #
@@ -53,17 +66,12 @@ sed -i "" -e "s/latest/${VERSION}/" *.yml
 git commit -a -m "release: ${VERSION}" -m "${CHANGES}"
 git tag -a "${VERSION}" -m "release" -m "${CHANGES}"
 
-# Tag Docker images and push them to DockerHub
+# Revert back to "unstable" for development
 #
 
-JITSI_BUILD=${VERSION} make release
+sed -i".bak" -e "s/${VERSION}/unstable/" *.yml
 
-# Revert back to "latest" for development
-#
-
-sed -i "" -e "s/${VERSION}/latest/" *.yml
-
-git commit -a -m "misc: working on latest"
+git commit -a -m "misc: working on unstable"
 
 # Push all changes and tags
 #

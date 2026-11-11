@@ -1,28 +1,33 @@
-{{ $CONFIG_EXTERNAL_CONNECT := .Env.CONFIG_EXTERNAL_CONNECT | default "false" | toBool -}}
+{{ $CONFIG_PREFIX := .Env.WEB_CONFIG_PREFIX | default "// Jitsi Meet configuration.\n" -}}
+{{ $BOSH_RELATIVE := .Env.BOSH_RELATIVE | default "false" | toBool -}}
 {{ $ENABLE_AUTH := .Env.ENABLE_AUTH | default "false" | toBool -}}
+{{ $ENABLE_AUTH_DOMAIN := .Env.ENABLE_AUTH_DOMAIN | default "true" | toBool -}}
 {{ $ENABLE_GUESTS := .Env.ENABLE_GUESTS | default "false" | toBool -}}
 {{ $ENABLE_SUBDOMAINS := .Env.ENABLE_SUBDOMAINS | default "true" | toBool -}}
 {{ $ENABLE_XMPP_WEBSOCKET := .Env.ENABLE_XMPP_WEBSOCKET | default "1" | toBool -}}
-{{ $JICOFO_AUTH_USER := .Env.JICOFO_AUTH_USER | default "focus" }}
 {{ $PUBLIC_URL_DOMAIN := .Env.PUBLIC_URL | default "https://localhost:8443" | trimPrefix "https://" | trimSuffix "/" -}}
-{{ $XMPP_AUTH_DOMAIN := .Env.XMPP_AUTH_DOMAIN -}}
-{{ $XMPP_DOMAIN := .Env.XMPP_DOMAIN -}}
-{{ $XMPP_MUC_DOMAIN := .Env.XMPP_MUC_DOMAIN -}}
-{{ $XMPP_MUC_DOMAIN_PREFIX := (split "." .Env.XMPP_MUC_DOMAIN)._0  -}}
+{{ $XMPP_DOMAIN := .Env.XMPP_DOMAIN | default "meet.jitsi" -}}
+{{ $XMPP_GUEST_DOMAIN := .Env.XMPP_GUEST_DOMAIN | default "guest.meet.jitsi" -}}
+{{ $XMPP_MUC_DOMAIN := .Env.XMPP_MUC_DOMAIN | default "muc.meet.jitsi" -}}
+{{ $XMPP_MUC_DOMAIN_PREFIX := (split "." $XMPP_MUC_DOMAIN)._0  -}}
+{{ $JVB_PREFER_SCTP := .Env.JVB_PREFER_SCTP | default "1" | toBool -}}
 
-// Begin default config overrides.
+{{ join "\n" (splitList "\\n" $CONFIG_PREFIX) }}
+var config = {};
 
-if (!config.hasOwnProperty('hosts')) config.hosts = {};
-
+config.hosts = {};
 config.hosts.domain = '{{ $XMPP_DOMAIN }}';
-config.focusUserJid = '{{$JICOFO_AUTH_USER}}@{{$XMPP_AUTH_DOMAIN}}';
 
 {{ if $ENABLE_SUBDOMAINS -}}
-var subdomain = "<!--# echo var="subdomain" default="" -->";
-if (subdomain) {
-    subdomain = subdomain.substr(0,subdomain.length-1).split('.').join('_').toLowerCase() + '.';
+var subdir = '<!--# echo var="subdir" default="" -->';
+var subdomain = '<!--# echo var="subdomain" default="" -->';
+if (subdir.startsWith('<!--')) {
+    subdir = '';
 }
-config.hosts.muc = '{{ $XMPP_MUC_DOMAIN_PREFIX }}.'+subdomain+'{{ $XMPP_DOMAIN }}';
+if (subdomain) {
+    subdomain = subdomain.substring(0,subdomain.length-1).split('.').join('_').toLowerCase() + '.';
+}
+config.hosts.muc = '{{ $XMPP_MUC_DOMAIN_PREFIX }}.' + subdomain + '{{ $XMPP_DOMAIN }}';
 {{ else -}}
 config.hosts.muc = '{{ $XMPP_MUC_DOMAIN }}';
 {{ end -}}
@@ -30,21 +35,36 @@ config.hosts.muc = '{{ $XMPP_MUC_DOMAIN }}';
 {{ if $ENABLE_AUTH -}}
 {{ if $ENABLE_GUESTS -}}
 // When using authentication, domain for guest users.
-config.hosts.anonymousdomain = '{{ .Env.XMPP_GUEST_DOMAIN }}';
+config.hosts.anonymousdomain = '{{ $XMPP_GUEST_DOMAIN }}';
 {{ end -}}
+{{ if $ENABLE_AUTH_DOMAIN -}}
 // Domain for authenticated users. Defaults to <domain>.
 config.hosts.authdomain = '{{ $XMPP_DOMAIN }}';
 {{ end -}}
+{{ end -}}
 
+{{ if $BOSH_RELATIVE -}}
+{{ if $ENABLE_SUBDOMAINS -}}
+config.bosh = '/'+ subdir + 'http-bind';
+{{ else -}}
 config.bosh = '/http-bind';
+{{ end -}}
+{{ else -}}
+{{ if $ENABLE_SUBDOMAINS -}}
+config.bosh = 'https://{{ $PUBLIC_URL_DOMAIN}}/' + subdir + 'http-bind';
+{{ else -}}
+config.bosh = 'https://{{ $PUBLIC_URL_DOMAIN}}/http-bind';
+{{ end -}}
+{{ end -}}
+
 {{ if $ENABLE_XMPP_WEBSOCKET -}}
+{{ if $ENABLE_SUBDOMAINS -}}
+config.websocket = 'wss://{{ $PUBLIC_URL_DOMAIN }}/' + subdir + 'xmpp-websocket';
+{{ else -}}
 config.websocket = 'wss://{{ $PUBLIC_URL_DOMAIN }}/xmpp-websocket';
 {{ end -}}
+{{ end -}}
 
-{{ if $CONFIG_EXTERNAL_CONNECT -}}
-{{ if $ENABLE_SUBDOMAINS -}}
-config.externalConnectUrl = '/<!--# echo var="subdir" default="" -->http-pre-bind';
-{{ else -}}
-config.externalConnectUrl = '/http-pre-bind';
-{{ end -}}
-{{ end -}}
+config.bridgeChannel = {
+    preferSctp: {{ $JVB_PREFER_SCTP }}
+};

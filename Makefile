@@ -1,30 +1,53 @@
 FORCE_REBUILD ?= 0
 JITSI_RELEASE ?= stable
-JITSI_BUILD ?= latest
-JITSI_REPO ?= jitsi
-JITSI_SERVICES ?= base base-java web prosody jicofo jvb jigasi jibri
+JITSI_BUILD ?= unstable
+JITSI_REPO ?= ghcr.io/jitsi
 
-BUILD_ARGS := --build-arg JITSI_REPO=$(JITSI_REPO) --build-arg JITSI_RELEASE=$(JITSI_RELEASE)
+JITSI_SERVICES := base base-java web prosody jicofo jvb jigasi jibri
+
+BUILD_ARGS := \
+	--build-arg JITSI_REPO=$(JITSI_REPO) \
+	--build-arg JITSI_RELEASE=$(JITSI_RELEASE)
+
 ifeq ($(FORCE_REBUILD), 1)
   BUILD_ARGS := $(BUILD_ARGS) --no-cache
 endif
 
 
-all:	build-all
+all:
+	$(MAKE) build-all JITSI_REPO="jitsi"
 
-release: tag-all push-all
+release:
+	@$(foreach SERVICE, $(JITSI_SERVICES), $(MAKE) --no-print-directory JITSI_SERVICE=$(SERVICE) buildx;)
+
+buildx:
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--progress=plain \
+		$(BUILD_ARGS) --build-arg BASE_TAG=$(JITSI_BUILD) \
+		--pull --push \
+		--tag $(JITSI_REPO)/$(JITSI_SERVICE):$(JITSI_BUILD) \
+		--tag $(JITSI_REPO)/$(JITSI_SERVICE):$(JITSI_RELEASE) \
+		$(JITSI_SERVICE)
+
+$(addprefix buildx_,$(JITSI_SERVICES)):
+	$(MAKE) --no-print-directory JITSI_SERVICE=$(patsubst buildx_%,%,$@) buildx
 
 build:
-	docker build $(BUILD_ARGS) --progress plain --tag $(JITSI_REPO)/$(JITSI_SERVICE) $(JITSI_SERVICE)/
+	docker buildx build \
+		$(BUILD_ARGS) --build-arg BASE_TAG=latest \
+		--load \
+		--progress plain \
+		--tag $(JITSI_REPO)/$(JITSI_SERVICE) \
+		$(JITSI_SERVICE)
 
 $(addprefix build_,$(JITSI_SERVICES)):
 	$(MAKE) --no-print-directory JITSI_SERVICE=$(patsubst build_%,%,$@) build
 
 tag:
-	docker tag $(JITSI_REPO)/$(JITSI_SERVICE):latest $(JITSI_REPO)/$(JITSI_SERVICE):$(JITSI_BUILD)
+	docker tag $(JITSI_REPO)/$(JITSI_SERVICE) $(JITSI_REPO)/$(JITSI_SERVICE):$(JITSI_BUILD)
 
 push:
-	docker push $(JITSI_REPO)/$(JITSI_SERVICE):latest
 	docker push $(JITSI_REPO)/$(JITSI_SERVICE):$(JITSI_BUILD)
 
 %-all:
@@ -36,7 +59,6 @@ clean:
 	docker network prune
 
 prepare:
-	docker pull debian:bullseye-slim
 	FORCE_REBUILD=1 $(MAKE)
 
 .PHONY: all build tag push clean prepare release $(addprefix build_,$(JITSI_SERVICES))
